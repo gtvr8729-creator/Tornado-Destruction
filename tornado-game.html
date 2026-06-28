@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Tornado Destruction</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #071016; color: #eff9ff; font-family: "Segoe UI", Arial, sans-serif; touch-action: none; }
+    canvas { display: block; width: 100vw; height: 100vh; background: #122235; }
+    button { border: 1px solid rgba(255,255,255,.25); background: rgba(23,64,90,.9); color: white; border-radius: 6px; min-height: 34px; padding: 7px 10px; font-weight: 800; cursor: pointer; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .hud { position: fixed; left: 10px; top: 8px; display: grid; gap: 8px; width: 300px; max-width: calc(100vw - 20px); pointer-events: none; text-shadow: 0 2px 8px #000; }
+    .panel, .shop { border: 1px solid rgba(207,232,255,.26); background: rgba(3,12,20,.76); backdrop-filter: blur(10px); border-radius: 8px; box-shadow: 0 12px 32px rgba(0,0,0,.35); }
+    .panel { padding: 10px 12px; }
+    .title { font-size: 20px; font-weight: 900; }
+    .stat { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; line-height: 1.55; }
+    .bar { height: 7px; background: rgba(255,255,255,.13); border-radius: 99px; overflow: hidden; margin-top: 5px; }
+    .bar i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg,#5be3ff,#fff,#ffc15c); }
+    .warning { color: #ffdc7c; font-weight: 900; letter-spacing: 0; }
+    .shop { position: fixed; right: 10px; top: 8px; bottom: 10px; width: min(410px, calc(100vw - 20px)); overflow: hidden; display: flex; flex-direction: column; }
+    .shopHead { padding: 10px; border-bottom: 1px solid rgba(255,255,255,.14); display: grid; gap: 8px; }
+    .shopTitle { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .shopTitle h1 { margin: 0; font-size: 18px; }
+    .tabs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+    .tabs button.active { background: rgba(41,132,172,.95); border-color: rgba(127,230,255,.75); }
+    .list { overflow: auto; padding: 8px; display: grid; gap: 7px; }
+    .item { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.055); border-radius: 8px; padding: 9px; }
+    .item.active { border-color: rgba(107,231,255,.8); background: rgba(34,130,170,.2); }
+    .name { font-size: 14px; font-weight: 900; }
+    .desc, .cost { font-size: 12px; color: #c8d8e6; margin-top: 3px; }
+    .cost { color: #ffd77b; }
+    .toast { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); min-width: 260px; text-align: center; pointer-events: none; padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,.18); background: rgba(2,8,14,.84); opacity: 0; transition: opacity .16s; text-shadow: 0 2px 8px #000; }
+    .toast.show { opacity: 1; }
+    .audioHint { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); padding: 8px 12px; border-radius: 8px; background: rgba(4,12,20,.82); border: 1px solid rgba(255,255,255,.18); font-size: 13px; pointer-events: none; }
+    .audioHint.hide { display: none; }
+    .mobile { position: fixed; left: 12px; bottom: 12px; display: none; grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(3, 54px); gap: 7px; }
+    .mobile button { width: 54px; height: 54px; padding: 0; font-size: 17px; pointer-events: auto; }
+    .up { grid-column: 2; grid-row: 1; } .left { grid-column: 1; grid-row: 2; } .right { grid-column: 3; grid-row: 2; } .down { grid-column: 2; grid-row: 3; }
+    @media (max-width: 820px) {
+      .hud { width: 245px; }
+      .panel:nth-child(2) { display: none; }
+      .shop { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; height: 40vh; }
+      .mobile { display: grid; bottom: calc(40vh + 18px); }
+      .title { font-size: 17px; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div class="hud">
+    <div class="panel">
+      <div class="title">Tornado Destruction</div>
+      <div class="stat"><span>Mode</span><b id="modeText">Tornado</b></div>
+      <div class="stat"><span>Destruction</span><b id="money">0</b></div>
+      <div class="stat"><span>Vehicle</span><b id="current">EF0</b></div>
+      <div class="stat"><span>Storm combo</span><b id="combo">x1.0</b></div>
+      <div class="bar"><i id="comboBar"></i></div>
+      <div class="stat warning"><span id="warningText">Tornado Watch</span><b id="sirens">silent</b></div>
+      <div class="stat"><span>UPDATE</span><b id="updateTimer">7d 00h</b></div>
+    </div>
+    <div class="panel">
+      <div class="stat"><span>Move</span><b>WASD / arrows</b></div>
+      <div class="stat"><span>Tornado</span><b>destroy town</b></div>
+      <div class="stat"><span>Interceptor</span><b>get close, survive</b></div>
+      <div class="stat"><span>Reset map</span><b>R</b></div>
+    </div>
+  </div>
+  <div class="shop">
+    <div class="shopHead">
+      <div class="shopTitle"><h1 id="shopTitle">Tornado Shop</h1><button id="saveBtn">save</button></div>
+      <div class="tabs"><button id="tornadoTab" class="active">Tornados</button><button id="interceptorTab">Interceptors</button><button id="serverTab">Servers</button></div>
+    </div>
+    <div class="list" id="list"></div>
+  </div>
+  <div class="mobile">
+    <button class="up" data-dir="up">UP</button>
+    <button class="left" data-dir="left">LEFT</button>
+    <button class="right" data-dir="right">RIGHT</button>
+    <button class="down" data-dir="down">DOWN</button>
+  </div>
+  <div class="toast" id="toast"></div>
+  <div class="audioHint" id="audioHint">click or press any key for engine, wind, sirens</div>
+  <script>
+    const canvas = document.getElementById("game"), ctx = canvas.getContext("2d");
+    const $ = id => document.getElementById(id);
+    const moneyEl = $("money"), currentEl = $("current"), comboEl = $("combo"), comboBar = $("comboBar"), listEl = $("list");
+    const modeText = $("modeText"), warningText = $("warningText"), sirensEl = $("sirens"), toastEl = $("toast"), updateTimerEl = $("updateTimer"), audioHint = $("audioHint");
+    const SAVE = "tornado-destruction-v2";
+    const WEEK = 7 * 24 * 60 * 60 * 1000;
+    const tornadoes = [
+      ["EF0",0,34,1,"Weak starter rope. Trees and roofs first."],["EF1",2400,41,1.35,"Breaks weak houses"],["EF2",8800,50,1.85,"Serious damage path"],["EF3",22000,62,2.45,"Town shredder"],["EF0 Wedge",39000,78,2.6,"Wide starter wedge"],["EF1 Wedge",68000,90,3.25,"Wide grinding path"],["EF4",115000,78,4.1,"Violent core"],["EF3 Wedge",185000,112,4.9,"Huge wedge"],["EF4 Wedge",285000,134,6.2,"Massive violent wedge"],["EF5",440000,104,7.6,"Extreme tornado"],["Wedge EF5",650000,162,9.2,"Monster wedge"],["Manitoba 2007 EF5",980000,174,10.8,"Canadian monster"],["Philadelphia 2011",1400000,146,11.8,"Fast city ripper"],["Smithville 2011",1950000,132,13.8,"Tiny core, unreal power"],["Rainsville 2011",2600000,148,15,"Mountain crusher"],["Moore 2013",3400000,166,16.7,"Suburb destroyer"],["Joplin 2011",4450000,184,18.5,"Rain-wrapped nightmare"],["Enderlin EF5",5900000,198,20.4,"Open plains beast"],["Parkersburg EF5",7600000,212,22.8,"Iowa grinder"],["Greensburg EF5",9800000,228,25.2,"Whole-town monster"],["Shinnston EF4",12600000,196,28,"Historic violent tornado"],["El Reno 2011",16000000,240,31,"Multi-vortex chaos"],["El Reno 2013 EF5",20500000,285,36,"Gigantic storm boss"],["Bridge Creek F5",27000000,228,42,"Final boss tornado"]
+    ].map((t,i)=>({id:i,name:t[0],cost:i?Math.round(t[1]*2.6):0,radius:t[2],power:t[3],desc:t[4]}));
+    const interceptors = [
+      ["Spotter Pickup",0,255,1,"Starter chase truck"],["DOW Scout Van",2500,265,1.25,"Doppler support van"],["DOW 6 Radar Truck",12000,230,2.1,"Big radar, bigger payouts"],["TIV-1",42000,220,3.0,"Heavy armored interceptor"],["Dominator 1",90000,275,3.2,"Fast intercept unit"],["TIV-2",210000,205,4.4,"Huge wedge armor"],["Dominator 2",430000,295,4.8,"Fast armored wedge"],["Dominator 3",900000,315,6.2,"Elite probe launcher"],["DOW 7 Convoy",1800000,235,8.2,"High-value mobile radar"],["Probe Tank",3600000,215,11,"Endgame armored probe unit"],["Tornado Pod Carrier",6200000,245,14,"Drops probes for huge scan money"]
+    ].map((t,i)=>({id:i,name:t[0],cost:i?Math.round(t[1]*3.1):0,speed:t[2],armor:t[3],desc:t[4]}));
+    let W=0,H=0,DPR=1,money=0,selected=0,selectedInt=0,mode="tornado",unlockedT=new Set([0]),unlockedI=new Set([0]),updateStart=Date.now(),updateClaimed=false;
+    let keys={},mobileDir={},objects=[],debris=[],clouds=[],sparks=[],people=[],roadCars=[],roads=[],bots=[],vortices=[];
+    let player={x:900,y:720,vx:0,vy:0,rot:0}, aiTornado={x:1250,y:550,vx:0,vy:0,rot:0,radius:78,power:2.6};
+    let cameraShake=0,combo=1,comboTimer=0,last=performance.now(),sirenTimer=0,renderTick=0,audio=null,lightning=0,lightningTimer=rand(3,9),rainPhase=0;
+    const world={w:5400,h:3800};
+    function rand(a,b){return a+Math.random()*(b-a)} function clamp(v,a,b){return Math.max(a,Math.min(b,v))} function d(a,b,c,d){return Math.hypot(a-c,b-d)}
+    function resize(){DPR=Math.max(1,Math.min(1.35,devicePixelRatio||1));W=innerWidth;H=innerHeight;canvas.width=W*DPR;canvas.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0)}
+    function toast(t){toastEl.textContent=t;toastEl.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>toastEl.classList.remove("show"),1300)}
+    function initAudio(){if(audio)return;let AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;let ac=new AC(),master=ac.createGain();master.gain.value=.28;master.connect(ac.destination);
+      let wind=ac.createBufferSource(),buf=ac.createBuffer(1,ac.sampleRate*2,ac.sampleRate),arr=buf.getChannelData(0);for(let i=0;i<arr.length;i++)arr[i]=Math.random()*2-1;wind.buffer=buf;wind.loop=true;let windFilter=ac.createBiquadFilter();windFilter.type="lowpass";windFilter.frequency.value=520;let windGain=ac.createGain();windGain.gain.value=.05;wind.connect(windFilter);windFilter.connect(windGain);windGain.connect(master);wind.start();
+      let engine=ac.createOscillator(),engineGain=ac.createGain();engine.type="sawtooth";engine.frequency.value=70;engineGain.gain.value=.025;engine.connect(engineGain);engineGain.connect(master);engine.start();
+      let siren=ac.createOscillator(),sirenGain=ac.createGain();siren.type="sine";siren.frequency.value=420;sirenGain.gain.value=0;siren.connect(sirenGain);sirenGain.connect(master);siren.start();
+      audio={ac,windFilter,windGain,engine,engineGain,siren,sirenGain};audioHint.classList.add("hide");toast("Audio on")}
+    function updateAudio(){if(!audio)return;let speed=Math.hypot(player.vx,player.vy),stormPower=mode==="tornado"?data().power:aiTornado.power,range=mode==="interceptor"?d(player.x,player.y,aiTornado.x,aiTornado.y):0,t=audio.ac.currentTime;
+      audio.windGain.gain.setTargetAtTime(clamp(.035+stormPower*.008+(mode==="interceptor"?Math.max(0,1-range/620)*.13:0),.03,.32),t,.08);
+      audio.windFilter.frequency.setTargetAtTime(380+stormPower*45+speed*.6,t,.08);
+      audio.engine.frequency.setTargetAtTime(mode==="interceptor"?55+speed*.33:32+stormPower*5,t,.05);
+      audio.engineGain.gain.setTargetAtTime(mode==="interceptor"?.035+speed*.00018:.012,t,.05);
+      audio.siren.frequency.setTargetAtTime(520+Math.sin(performance.now()/230)*260,t,.04);
+      audio.sirenGain.gain.setTargetAtTime(sirenTimer>0?.055:0,t,.08)}
+    function playSfx(kind,intensity=1){if(!audio)return;let ac=audio.ac,g=ac.createGain(),f=ac.createBiquadFilter(),buf=ac.createBuffer(1,Math.floor(ac.sampleRate*.35),ac.sampleRate),a=buf.getChannelData(0);for(let i=0;i<a.length;i++)a[i]=(Math.random()*2-1)*(1-i/a.length);let src=ac.createBufferSource();src.buffer=buf;f.type=kind==="thunder"?"lowpass":"bandpass";f.frequency.value=kind==="thunder"?90:kind==="impact"?260:780;g.gain.value=(kind==="thunder"?.25:kind==="impact"?.09:.045)*intensity;src.connect(f);f.connect(g);g.connect(audio.ac.destination);src.start();g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+(kind==="thunder"?1.1:.22))}
+    function save(){localStorage.setItem(SAVE,JSON.stringify({money,selected,selectedInt,mode,unlockedT:[...unlockedT],unlockedI:[...unlockedI],updateStart,updateClaimed}));toast("Saved")}
+    function load(){try{const s=JSON.parse(localStorage.getItem(SAVE)||"null");if(!s){updateStart=Date.now();return}money=+s.money||0;selected=+s.selected||0;selectedInt=+s.selectedInt||0;mode=s.mode||"tornado";updateStart=+s.updateStart||Date.now();updateClaimed=!!s.updateClaimed;unlockedT=new Set((s.unlockedT||[0]).map(Number));unlockedI=new Set((s.unlockedI||[0]).map(Number));if(!unlockedT.has(selected))selected=0;if(!unlockedI.has(selectedInt))selectedInt=0}catch{}}
+    function spawnMap(){
+      objects=[];debris=[];sparks=[];people=[];roadCars=[];clouds=[];roads=[];bots=[];vortices=[];
+      roads=[{y:360},{y:870},{y:1310},{x:520},{x:1550},{x:2110}];
+      for(let i=0;i<70;i++)clouds.push({x:rand(0,world.w),y:rand(0,world.h),r:rand(80,210),a:rand(.04,.13),s:rand(.5,1.7)});
+      const zones=[{x:210,y:170,w:650,h:430},{x:1020,y:210,w:720,h:500},{x:420,y:990,w:900,h:460},{x:1660,y:980,w:590,h:420},{x:1880,y:360,w:560,h:380},{x:2850,y:300,w:760,h:500},{x:3720,y:760,w:880,h:520},{x:2700,y:1780,w:850,h:470},{x:760,y:2120,w:960,h:520},{x:4060,y:2350,w:700,h:460}];
+      zones.forEach(z=>{for(let i=0;i<42;i++){let big=Math.random()<.22,w=big?rand(54,92):rand(30,56),h=big?rand(46,82):rand(28,48),baseHp=big?rand(270,460):rand(120,225);objects.push({type:big?"factory":"house",x:rand(z.x,z.x+z.w),y:rand(z.y,z.y+z.h),w,h,hp:baseHp,maxHp:baseHp,value:big?rand(190,330):rand(70,135),color:big?["#647889","#7c5c4d","#516775"][Math.floor(rand(0,3))]:["#b85e4f","#c8b45a","#5f92a0","#d7d2be"][Math.floor(rand(0,4))],angle:rand(-.1,.1),dead:false,basement:Math.random()<.45,parts:["roof","left wall","right wall","front wall","windows"].map((name,j)=>({name,gone:false,hp:baseHp*(.13+j*.025)}))})}});
+      for(let i=0;i<260;i++)objects.push({type:"tree",x:rand(70,world.w-70),y:rand(70,world.h-70),w:rand(15,28),h:rand(30,48),hp:rand(25,45),value:rand(8,18),angle:rand(-.2,.2),dead:false});
+      for(let i=0;i<86;i++)roadCars.push({x:rand(0,world.w),y:[360,870,1310][Math.floor(rand(0,3))]+rand(-7,7),vx:rand(65,150)*(Math.random()<.5?-1:1),color:["#f04b4b","#e8e8e8","#222d38","#3da2ff","#ffd34a"][Math.floor(rand(0,5))],dead:false,hp:55,value:60});
+      for(let i=0;i<190;i++)people.push({x:rand(120,world.w-120),y:rand(120,world.h-120),vx:0,vy:0,hide:0,dead:false});
+      ["SKYHOOK_22","DOPPLER_KID","VORTEX_UNIT","CHASECAM","MESO_9"].forEach((name,i)=>bots.push({name,x:rand(200,world.w-200),y:rand(200,world.h-200),vx:0,vy:0,type:i%2?"interceptor":"tornado",rot:0,r:rand(24,50)}));
+      for(let i=0;i<8;i++)vortices.push({a:rand(0,Math.PI*2),d:rand(35,120),r:rand(9,26),s:rand(.6,1.7),life:rand(3,9)});
+      player.x=850;player.y=720;aiTornado.x=1650;aiTornado.y=560;objects.sort((a,b)=>a.y-b.y);
+    }
+    function data(){return mode==="tornado"?tornadoes[selected]:interceptors[selectedInt]}
+    function renderShop(){
+      $("tornadoTab").classList.toggle("active",mode==="tornado");$("interceptorTab").classList.toggle("active",mode==="interceptor");$("serverTab").classList.toggle("active",mode==="servers");
+      if(mode==="servers"){ $("shopTitle").textContent="Multiplayer Servers"; listEl.innerHTML=`<div class="item active"><div><div class="name">Servers are planned</div><div class="desc">Real online multiplayer needs a hosted server/database. This file is ready for modes, but live friend servers cannot run from only one HTML file.</div><div class="cost">Planned: Tornados vs Interceptors, private code lobbies, public storm servers.</div></div><button disabled>soon</button></div><div class="item"><div><div class="name">Local practice server</div><div class="desc">Use Tornados or Interceptors tabs now. The AI tornado/interceptor mode is the offline practice version.</div><div class="cost">Free</div></div><button onclick="mode='tornado';renderShop();updateHud();save()">play</button></div>`; return; }
+      $("shopTitle").textContent=mode==="tornado"?"Tornado Shop":"Interceptor Garage";listEl.innerHTML="";
+      const arr=mode==="tornado"?tornadoes:interceptors, unlocked=mode==="tornado"?unlockedT:unlockedI, sel=mode==="tornado"?selected:selectedInt;
+      arr.forEach(t=>{const row=document.createElement("div");row.className="item"+(sel===t.id?" active":"");const info=document.createElement("div");
+        info.innerHTML=`<div class="name">${t.name}</div><div class="desc">${t.desc}</div><div class="cost">${t.cost? t.cost.toLocaleString()+" Destruction":"free"}</div>`;
+        const btn=document.createElement("button");
+        if(unlocked.has(t.id)){btn.textContent=sel===t.id?"using":"use";btn.disabled=sel===t.id;btn.onclick=()=>{if(mode==="tornado")selected=t.id;else selectedInt=t.id;renderShop();save();toast("Using "+t.name)}}
+        else{btn.textContent=money>=t.cost?"buy":"need";btn.disabled=money<t.cost;btn.onclick=()=>{if(money<t.cost)return;money-=t.cost;unlocked.add(t.id);if(mode==="tornado")selected=t.id;else selectedInt=t.id;renderShop();updateHud();save();toast("Unlocked "+t.name)}}
+        row.append(info,btn);listEl.appendChild(row);
+      });
+    }
+    function updateHud(){
+      modeText.textContent=mode==="tornado"?"Tornado":"Interceptor";
+      moneyEl.textContent=Math.floor(money).toLocaleString();currentEl.textContent=data().name;comboEl.textContent="x"+combo.toFixed(1);comboBar.style.width=clamp(comboTimer/4,0,1)*100+"%";
+      const near=mode==="tornado"?tornadoes[selected].power:aiTornado.power; warningText.textContent=near>7?"TORNADO EMERGENCY":near>4?"Tornado Warning":"Tornado Watch"; sirensEl.textContent=sirenTimer>0?"SIRENS":"silent";
+      let left=Math.max(0,updateStart+WEEK-Date.now());if(left===0&&!updateClaimed){updateClaimed=true;money+=25000;unlockedI.add(1);toast("UPDATE DROPPED: +25,000 Destruction and Doppler Van");save()}let ddays=Math.floor(left/86400000),dhours=Math.floor(left%86400000/3600000),dmins=Math.floor(left%3600000/60000);updateTimerEl.textContent=left?`${ddays}d ${dhours}h ${dmins}m`:"LIVE";
+      if(++renderTick%20===0)renderShop();
+    }
+    function addDebris(o,cx,cy,n=8,bonus=1){for(let i=0;i<n;i++){let a=Math.atan2(o.y-cy,o.x-cx)+rand(-1.5,1.5),s=rand(120,340)*bonus;debris.push({x:o.x+rand(-o.w*.35,o.w*.35),y:o.y+rand(-o.h*.35,o.h*.35),vx:Math.cos(a)*s,vy:Math.sin(a)*s-rand(30,160),r:rand(2,8),life:rand(1.2,3.2),color:o.color||"#8fa1aa",spin:rand(-8,8),mass:rand(.6,1.8),hit:false})}}
+    function shedPart(o,cx,cy){if(!o.parts)return;let part=o.parts.find(p=>!p.gone&&o.hp<o.maxHp-p.hp);if(!part)return;part.gone=true;addDebris(o,cx,cy,4,1.35);money+=Math.max(1,o.value*.025)*combo;cameraShake=Math.max(cameraShake,4);playSfx("impact",.45)}
+    function crush(o,amt,cx,cy,dt,power=1){if(o.dead)return;let resistance=o.type==="tree"?0.55:o.type==="house"?1.25:1.75;if(power<1.4&&o.type!=="tree")amt*=.18;if(power<2.0&&o.type==="factory")amt*=.15;o.hp-=amt*dt/resistance;shedPart(o,cx,cy);if(Math.random()<.08)sparks.push({x:o.x,y:o.y,vx:rand(-90,90),vy:rand(-100,20),life:.45,c:"#ffd46c"});if(o.hp<=0){o.dead=true;money+=o.value*combo*.42;combo=clamp(combo+.025,1,9);comboTimer=4;cameraShake=Math.max(cameraShake,9);playSfx("impact",o.type==="factory"?1.3:.8);addDebris(o,cx,cy,o.type==="factory"?24:o.type==="house"?16:8,1.65)}}
+    function movePlayer(dt){
+      let ax=0,ay=0;if(keys.ArrowLeft||keys.a||mobileDir.left)ax--;if(keys.ArrowRight||keys.d||mobileDir.right)ax++;if(keys.ArrowUp||keys.w||mobileDir.up)ay--;if(keys.ArrowDown||keys.s||mobileDir.down)ay++;
+      let l=Math.hypot(ax,ay)||1;ax/=l;ay/=l;let speed=mode==="tornado"?270+data().power*7:data().speed;
+      player.vx+=ax*speed*dt*4;player.vy+=ay*speed*dt*4;player.vx*=Math.pow(.09,dt);player.vy*=Math.pow(.09,dt);player.x=clamp(player.x+player.vx*dt,35,world.w-35);player.y=clamp(player.y+player.vy*dt,35,world.h-35);player.rot+=dt*(mode==="tornado"?4+data().power*.12:2.5);
+    }
+    function stormDamage(cx,cy,radius,power,dt,playerEarns){
+      const pull=radius*2.55;
+      objects.forEach(o=>{if(o.dead)return;let x=o.x,y=o.y,dd=d(cx,cy,x,y);if(dd<pull){let f=(1-dd/pull)*power,ang=Math.atan2(o.y-cy,o.x-cx)+Math.PI/2;o.angle+=f*dt*2.8;o.x+=(cx-o.x)*f*dt*.03+Math.cos(ang)*f*dt*9;o.y+=(cy-o.y)*f*dt*.03+Math.sin(ang)*f*dt*9}if(dd<radius+Math.max(o.w,o.h)*.6){let old=money;crush(o,15+power*6.5,cx,cy,dt,power);if(!playerEarns)money=old}});
+      roadCars.forEach(c=>{if(c.dead)return;let dd=d(cx,cy,c.x,c.y);if(dd<pull){let ang=Math.atan2(c.y-cy,c.x-cx)+Math.PI/2;c.vx+=(cx-c.x)/Math.max(dd,1)*power*80*dt+Math.cos(ang)*power*42*dt;c.y+=(cy-c.y)*power*dt*.02+Math.sin(ang)*power*18*dt}if(dd<radius+18){c.hp-=power*28*dt;if(c.hp<=0){c.dead=true;if(playerEarns)money+=c.value*combo*.45;playSfx("impact",.7);addDebris(c,cx,cy,7);cameraShake=Math.max(cameraShake,7)}}});
+    }
+    function updatePeople(dt,cx,cy,radius,power){
+      people.forEach(p=>{if(p.dead)return;let near=d(p.x,p.y,cx,cy);if(near<520&&p.hide<=0){let a=Math.atan2(p.y-cy,p.x-cx);p.vx+=Math.cos(a)*85*dt;p.vy+=Math.sin(a)*85*dt}p.x=clamp(p.x+p.vx*dt,20,world.w-20);p.y=clamp(p.y+p.vy*dt,20,world.h-20);p.vx*=Math.pow(.18,dt);p.vy*=Math.pow(.18,dt);if(sirenTimer>0&&near<650)p.hide=3;p.hide=Math.max(0,p.hide-dt);if(near<radius*.72&&p.hide<=0){p.dead=true;money+=6*combo;sparks.push({x:p.x,y:p.y,vx:0,vy:-50,life:.6,c:"#ffffff"})}});
+    }
+    function update(dt){
+      movePlayer(dt);comboTimer-=dt;if(comboTimer<=0)combo=Math.max(1,combo-dt*.55);cameraShake=Math.max(0,cameraShake-dt*18);sirenTimer-=dt;if(sirenTimer<=-rand(5,12))sirenTimer=rand(4,9);
+      roadCars.forEach(c=>{if(c.dead)return;c.x+=c.vx*dt;if(c.x<-40)c.x=world.w+40;if(c.x>world.w+40)c.x=-40});
+      bots.forEach(b=>{let tx=mode==="interceptor"?aiTornado.x:player.x,ty=mode==="interceptor"?aiTornado.y:player.y,ang=Math.atan2(ty-b.y,tx-b.x)+(b.type==="interceptor"?rand(-.5,.5):Math.sin(performance.now()/800+b.x)*1.2);b.vx+=Math.cos(ang)*(b.type==="interceptor"?80:35)*dt;b.vy+=Math.sin(ang)*(b.type==="interceptor"?80:35)*dt;b.vx*=Math.pow(.28,dt);b.vy*=Math.pow(.28,dt);b.x=clamp(b.x+b.vx*dt,60,world.w-60);b.y=clamp(b.y+b.vy*dt,60,world.h-60);b.rot+=dt*(b.type==="tornado"?4:2)});
+      if(mode==="tornado"){let t=data();stormDamage(player.x,player.y,t.radius,t.power,dt,true);updatePeople(dt,player.x,player.y,t.radius,t.power)}
+      else{
+        let a=Math.atan2(player.y-aiTornado.y,player.x-aiTornado.x)+Math.sin(performance.now()/900)*1.2;aiTornado.vx+=Math.cos(a)*80*dt;aiTornado.vy+=Math.sin(a)*80*dt;aiTornado.vx*=Math.pow(.2,dt);aiTornado.vy*=Math.pow(.2,dt);aiTornado.x=clamp(aiTornado.x+aiTornado.vx*dt,80,world.w-80);aiTornado.y=clamp(aiTornado.y+aiTornado.vy*dt,80,world.h-80);aiTornado.rot+=dt*5;
+        stormDamage(aiTornado.x,aiTornado.y,aiTornado.radius,aiTornado.power,dt*.28,false);updatePeople(dt,aiTornado.x,aiTornado.y,aiTornado.radius,aiTornado.power);
+        let range=d(player.x,player.y,aiTornado.x,aiTornado.y), sweet=range>aiTornado.radius*1.15&&range<aiTornado.radius*3.2;if(sweet){money+=dt*8*data().armor*combo;combo=clamp(combo+dt*.14,1,5);comboTimer=3}
+        if(range<aiTornado.radius*.9){cameraShake=12;money=Math.max(0,money-dt*18/data().armor)}
+      }
+      let cx=mode==="tornado"?player.x:aiTornado.x,cy=mode==="tornado"?player.y:aiTornado.y,power=mode==="tornado"?data().power:aiTornado.power,pull=(mode==="tornado"?data().radius:aiTornado.radius)*3.45;
+      vortices.forEach(v=>{v.a+=dt*v.s*(.8+power*.04);v.d=clamp(v.d+Math.sin(performance.now()/900+v.a)*dt*18,24,(mode==="tornado"?data().radius:aiTornado.radius)*1.25)});
+      lightningTimer-=dt;if(lightningTimer<=0){lightning=1;lightningTimer=rand(4,13);cameraShake=Math.max(cameraShake,4);playSfx("thunder",rand(.7,1.4))}
+      lightning=Math.max(0,lightning-dt*2.6);rainPhase+=dt*520;
+      debris.forEach(p=>{let dd=d(cx,cy,p.x,p.y);if(dd<pull){let a=Math.atan2(p.y-cy,p.x-cx)+Math.PI/2,orbit=(1-dd/pull)*power;p.vx+=(cx-p.x)/Math.max(1,dd)*power*95*dt+Math.cos(a)*orbit*185*dt;p.vy+=(cy-p.y)/Math.max(1,dd)*power*95*dt+Math.sin(a)*orbit*185*dt}p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=40*dt;p.life-=dt;if(!p.hit&&Math.hypot(p.vx,p.vy)>170){let hit=objects.find(o=>!o.dead&&Math.abs(o.x-p.x)<o.w*.75&&Math.abs(o.y-p.y)<o.h*.75);if(hit){p.hit=true;p.life=Math.min(p.life,.45);let old=money;crush(hit,p.mass*85,p.x,p.y,.16,power*.8);if(mode!=="tornado")money=old;playSfx("impact",.35);sparks.push({x:p.x,y:p.y,vx:rand(-40,40),vy:rand(-80,20),life:.4,c:"#d8edf7"})}}});
+      debris=debris.filter(p=>p.life>0);sparks.forEach(s=>{s.x+=s.vx*dt;s.y+=s.vy*dt;s.vy+=160*dt;s.life-=dt});sparks=sparks.filter(s=>s.life>0);clouds.forEach(c=>{c.x+=c.s*dt*9;if(c.x>world.w+c.r)c.x=-c.r});
+      updateAudio();
+      if(objects.filter(o=>!o.dead&&o.type!=="tree").length<14){toast("New town generated");spawnMap()}
+    }
+    function cam(){let target=player;return {x:clamp(target.x-W/2+rand(-cameraShake,cameraShake),0,world.w-W),y:clamp(target.y-H/2+rand(-cameraShake,cameraShake),0,world.h-H)}}
+    function ground(c){let g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,"#293e54");g.addColorStop(.45,"#253c35");g.addColorStop(1,"#18281f");ctx.fillStyle=g;ctx.fillRect(0,0,W,H);ctx.save();ctx.translate(-c.x,-c.y);clouds.forEach(cl=>{ctx.fillStyle=`rgba(12,22,34,${cl.a})`;ctx.beginPath();ctx.ellipse(cl.x,cl.y,cl.r*1.8,cl.r*.55,.2,0,Math.PI*2);ctx.fill()});ctx.strokeStyle="rgba(255,255,255,.035)";ctx.lineWidth=1;for(let gx=0;gx<world.w;gx+=70){ctx.beginPath();ctx.moveTo(gx,0);ctx.lineTo(gx+rand(-8,8),world.h);ctx.stroke()}for(let gy=0;gy<world.h;gy+=70){ctx.beginPath();ctx.moveTo(0,gy);ctx.lineTo(world.w,gy+rand(-8,8));ctx.stroke()}roads.forEach(r=>{ctx.strokeStyle="#20262b";ctx.lineWidth=42;ctx.beginPath();if(r.y){ctx.moveTo(0,r.y);ctx.bezierCurveTo(500,r.y+70,1200,r.y-45,world.w,r.y+30)}else{ctx.moveTo(r.x,0);ctx.bezierCurveTo(r.x+60,500,r.x-55,900,r.x+25,world.h)}ctx.stroke();ctx.strokeStyle="#333a40";ctx.lineWidth=32;ctx.stroke();ctx.strokeStyle="rgba(255,230,160,.45)";ctx.lineWidth=3;ctx.setLineDash([24,22]);ctx.stroke();ctx.setLineDash([])});ctx.restore()}
+    function drawObj(o,c){if(o.dead)return;let x=o.x-c.x,y=o.y-c.y;if(x<-120||y<-120||x>W+120||y>H+120)return;ctx.save();ctx.translate(x,y);ctx.rotate(o.angle||0);if(o.type==="tree"){ctx.fillStyle="#57391f";ctx.fillRect(-3,-o.h*.15,6,o.h*.7);ctx.fillStyle="#1e5a35";ctx.beginPath();ctx.arc(0,-o.h*.25,o.w*.58,0,Math.PI*2);ctx.fill()}else{let lost=o.parts?o.parts.filter(p=>p.gone).length:0;ctx.fillStyle="rgba(0,0,0,.3)";ctx.fillRect(-o.w/2+6,-o.h/2+7,o.w,o.h);ctx.fillStyle=o.color;ctx.fillRect(-o.w/2,-o.h/2,o.w,o.h);ctx.fillStyle=o.type==="factory"?"#27313b":"#56312a";if(!o.parts||!o.parts[0].gone){ctx.beginPath();ctx.moveTo(-o.w/2-4,-o.h/2);ctx.lineTo(0,-o.h/2-o.h*.35);ctx.lineTo(o.w/2+4,-o.h/2);ctx.closePath();ctx.fill()}ctx.fillStyle="rgba(7,10,12,.72)";if(lost>1)ctx.fillRect(-o.w*.42,-o.h*.22,o.w*.28,o.h*.38);if(lost>2)ctx.fillRect(o.w*.12,-o.h*.1,o.w*.31,o.h*.32);if(lost>3){ctx.strokeStyle="rgba(245,250,255,.45)";ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-o.w*.35,-o.h*.35);ctx.lineTo(o.w*.25,o.h*.32);ctx.moveTo(o.w*.4,-o.h*.25);ctx.lineTo(-o.w*.18,o.h*.34);ctx.stroke()}if(o.basement){ctx.fillStyle="rgba(0,0,0,.45)";ctx.fillRect(-8,o.h/2-6,16,8)}}ctx.restore()}
+    function drawCar(ca,c){if(ca.dead)return;let x=ca.x-c.x,y=ca.y-c.y;if(x<-60||y<-60||x>W+60||y>H+60)return;ctx.save();ctx.translate(x,y);ctx.rotate(ca.vx>0?0:Math.PI);ctx.fillStyle=ca.color;ctx.fillRect(-14,-7,28,14);ctx.fillStyle="#091018";ctx.fillRect(-5,-6,10,6);ctx.restore()}
+    function drawPeople(c){people.forEach(p=>{if(p.dead)return;let x=p.x-c.x,y=p.y-c.y;if(x<-20||y<-20||x>W+20||y>H+20)return;ctx.fillStyle=p.hide>0?"rgba(255,255,255,.18)":"#f1d0a7";ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();ctx.fillRect(x-1,y+2,2,7)})}
+    function drawTornadoAt(x,y,r,p,rot,c){let sx=x-c.x,sy=y-c.y;ctx.save();ctx.translate(sx,sy);for(let i=0;i<11;i++){let q=i/10,yy=-r*2.05+q*r*2.65,w=r*(1.2-q*.82);ctx.strokeStyle=`rgba(${75+i*10},${105+i*7},${118+i*6},${.16+q*.26})`;ctx.lineWidth=8+(1-q)*20;ctx.beginPath();for(let a=0;a<Math.PI*2.5;a+=.17){let wave=Math.sin(a*3+rot*2.3+i)*w*.2+Math.sin(a*7+rot)*w*.06,px=Math.cos(a+rot+i*.7)*(w+wave),py=yy+Math.sin(a*1.5+rot)*12;if(a===0)ctx.moveTo(px,py);else ctx.lineTo(px,py)}ctx.stroke()}vortices.slice(0,Math.min(vortices.length,Math.ceil(p/5)+2)).forEach((v,i)=>{let vx=Math.cos(v.a+i)*v.d,vy=Math.sin(v.a+i)*v.d*.55;ctx.strokeStyle="rgba(210,230,235,.2)";ctx.lineWidth=3;ctx.beginPath();ctx.ellipse(vx,vy,v.r,v.r*2.2,rot+v.a,0,Math.PI*2);ctx.stroke()});ctx.fillStyle="rgba(40,38,35,.32)";ctx.beginPath();ctx.ellipse(0,r*.72,r*1.15,r*.32,rot*.2,0,Math.PI*2);ctx.fill();let glow=ctx.createRadialGradient(0,0,8,0,0,r*1.65);glow.addColorStop(0,"rgba(240,250,255,.22)");glow.addColorStop(.6,"rgba(105,170,185,.12)");glow.addColorStop(1,"rgba(0,0,0,0)");ctx.fillStyle=glow;ctx.beginPath();ctx.arc(0,0,r*1.65,0,Math.PI*2);ctx.fill();ctx.restore()}
+    function drawInterceptor(c,overlay=false){let x=player.x-c.x,y=player.y-c.y,ang=Math.atan2(player.vy,player.vx);if(!Number.isFinite(ang)||Math.hypot(player.vx,player.vy)<4)ang=0;ctx.save();ctx.translate(x,y);ctx.rotate(ang);ctx.fillStyle=overlay?"#0b1118":"#111820";ctx.fillRect(-30,-15,60,30);ctx.fillStyle="#2f3d48";ctx.fillRect(-22,-21,44,9);ctx.fillStyle="#6fe4ff";ctx.fillRect(-8,-12,18,24);ctx.fillStyle="#05080b";ctx.fillRect(-25,-19,8,8);ctx.fillRect(17,-19,8,8);ctx.fillRect(-25,11,8,8);ctx.fillRect(17,11,8,8);ctx.strokeStyle=overlay?"#ffffff":"#6be7ff";ctx.lineWidth=overlay?3:2;ctx.strokeRect(-32,-17,64,34);ctx.restore();ctx.fillStyle="rgba(255,255,255,.95)";ctx.font="12px Segoe UI";ctx.textAlign="center";ctx.fillText(data().name,x,y-30)}
+    function drawBots(c){bots.forEach(b=>{let x=b.x-c.x,y=b.y-c.y;if(x<-80||y<-80||x>W+80||y>H+80)return;if(b.type==="tornado"){ctx.fillStyle="rgba(120,150,155,.25)";ctx.beginPath();ctx.ellipse(x,y,b.r,b.r*1.8,b.rot,0,Math.PI*2);ctx.fill()}else{ctx.save();ctx.translate(x,y);ctx.rotate(Math.atan2(b.vy,b.vx)||0);ctx.fillStyle="#111820";ctx.fillRect(-16,-8,32,16);ctx.fillStyle="#64d8ff";ctx.fillRect(-4,-6,9,12);ctx.restore()}ctx.fillStyle="rgba(230,248,255,.85)";ctx.font="11px Segoe UI";ctx.textAlign="center";ctx.fillText(b.name,x,y-24)})}
+    function drawParticles(c){debris.forEach(p=>{ctx.save();ctx.translate(p.x-c.x,p.y-c.y);ctx.rotate(p.life*p.spin);ctx.fillStyle=p.color;ctx.fillRect(-p.r,-p.r,p.r*2,p.r*2);ctx.restore()});sparks.forEach(s=>{ctx.globalAlpha=clamp(s.life*2.5,0,1);ctx.fillStyle=s.c;ctx.fillRect(s.x-c.x,s.y-c.y,3,3);ctx.globalAlpha=1})}
+    function drawCockpit(){if(mode!=="interceptor")return;let range=d(player.x,player.y,aiTornado.x,aiTornado.y);ctx.save();ctx.fillStyle="rgba(2,5,8,.78)";ctx.beginPath();ctx.moveTo(0,H);ctx.lineTo(W*.18,H*.68);ctx.lineTo(W*.82,H*.68);ctx.lineTo(W,H);ctx.closePath();ctx.fill();ctx.strokeStyle="rgba(120,210,240,.35)";ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(W*.18,H*.68);ctx.lineTo(W*.27,H*.2);ctx.moveTo(W*.82,H*.68);ctx.lineTo(W*.73,H*.2);ctx.stroke();ctx.fillStyle="rgba(0,0,0,.72)";ctx.fillRect(W*.33,H*.76,W*.34,54);ctx.fillStyle="#63e3ff";ctx.font="16px Segoe UI";ctx.textAlign="center";ctx.fillText("INTERCEPT RANGE " + Math.floor(range) + " m",W*.5,H*.79);ctx.fillText("ARMOR " + data().armor.toFixed(1) + "   SPEED " + Math.floor(Math.hypot(player.vx,player.vy)),W*.5,H*.83);ctx.fillStyle="rgba(255,255,255,.18)";for(let i=0;i<18;i++)ctx.fillRect(rand(0,W),rand(0,H*.7),rand(1,3),rand(6,18));ctx.restore()}
+    function drawWeather(){ctx.save();ctx.strokeStyle="rgba(190,225,255,.18)";ctx.lineWidth=1;for(let i=0;i<42;i++){let x=(i*61+rainPhase)%W,y=(i*97+rainPhase*1.7)%H;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-11,y+30);ctx.stroke()}if(lightning>0){ctx.fillStyle=`rgba(220,240,255,${lightning*.35})`;ctx.fillRect(0,0,W,H);ctx.strokeStyle=`rgba(245,250,255,${lightning})`;ctx.lineWidth=3;ctx.beginPath();let x=rand(W*.2,W*.8);ctx.moveTo(x,0);for(let y=0;y<H*.45;y+=38){x+=rand(-45,45);ctx.lineTo(x,y)}ctx.stroke()}ctx.restore()}
+    function draw(){const c=cam();ground(c);ctx.save();ctx.translate(-c.x,-c.y);ctx.strokeStyle="rgba(255,255,255,.09)";ctx.lineWidth=6;ctx.strokeRect(0,0,world.w,world.h);ctx.restore();objects.forEach(o=>drawObj(o,c));roadCars.forEach(rc=>drawCar(rc,c));drawPeople(c);drawBots(c);drawParticles(c);if(mode==="tornado")drawTornadoAt(player.x,player.y,data().radius,data().power,player.rot,c);else{drawTornadoAt(aiTornado.x,aiTornado.y,aiTornado.radius,aiTornado.power,aiTornado.rot,c);drawInterceptor(c)}ctx.fillStyle=`rgba(4,8,13,${sirenTimer>0?.22:.14})`;ctx.fillRect(0,0,W,H);drawWeather();if(sirenTimer>0&&Math.random()<.08){ctx.fillStyle="rgba(255,200,80,.1)";ctx.fillRect(0,0,W,H)}drawCockpit();if(mode==="interceptor")drawInterceptor(c,true)}
+    function loop(now){let dt=Math.min(.033,(now-last)/1000);last=now;update(dt);draw();updateHud();requestAnimationFrame(loop)}
+    addEventListener("resize",resize);addEventListener("pointerdown",initAudio,{once:true});addEventListener("keydown",e=>{initAudio();keys[e.key]=true;keys[e.key.toLowerCase()]=true;if(e.key.toLowerCase()==="r"){spawnMap();toast("New town spawned")}});addEventListener("keyup",e=>{keys[e.key]=false;keys[e.key.toLowerCase()]=false});
+    document.querySelectorAll(".mobile button").forEach(b=>{let dir=b.dataset.dir,on=e=>{e.preventDefault();mobileDir[dir]=true},off=e=>{e.preventDefault();mobileDir[dir]=false};b.addEventListener("pointerdown",on);b.addEventListener("pointerup",off);b.addEventListener("pointercancel",off);b.addEventListener("pointerleave",off)});
+    $("saveBtn").onclick=save;$("tornadoTab").onclick=()=>{mode="tornado";renderShop();updateHud();save();toast("Tornado mode")};$("interceptorTab").onclick=()=>{mode="interceptor";player.x=clamp(aiTornado.x-420,80,world.w-80);player.y=clamp(aiTornado.y+180,80,world.h-80);player.vx=0;player.vy=0;renderShop();updateHud();save();toast("Interceptor mode")};$("serverTab").onclick=()=>{mode="servers";renderShop();updateHud();save();toast("Server list planned")};setInterval(()=>localStorage.setItem(SAVE,JSON.stringify({money,selected,selectedInt,mode,unlockedT:[...unlockedT],unlockedI:[...unlockedI],updateStart,updateClaimed})),12000);
+    resize();load();spawnMap();renderShop();updateHud();requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
